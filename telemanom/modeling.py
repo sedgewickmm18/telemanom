@@ -12,7 +12,7 @@ logger = logging.getLogger('telemanom')
 
 
 class Model:
-    def __init__(self, config, run_id, channel):
+    def __init__(self, config, run_id, channel, Path=None):
         """
         Loads/trains RNN and predicts future telemetry values for a channel.
 
@@ -36,20 +36,24 @@ class Model:
         self.run_id = run_id
         self.y_hat = np.array([])
         self.model = None
+        self.history = None
 
         if not self.config.train:
             try:
                 self.load()
             except FileNotFoundError:
-                path = os.path.join('data', self.config.use_id, 'models',
+                path = os.path.join(Path, 'data', self.config.use_id, 'models',
                                     self.chan_id + '.h5')
                 logger.warning('Training new model, couldn\'t find existing '
                                'model at {}'.format(path))
                 self.train_new(channel)
-                self.save()
+                self.save(Path)
         else:
             self.train_new(channel)
-            self.save()
+            self.save(Path)
+
+    def __str__(self):
+        return str(self.model.summary())
 
     def load(self):
         """
@@ -94,20 +98,20 @@ class Model:
         self.model.compile(loss=self.config.loss_metric,
                            optimizer=self.config.optimizer)
 
-        self.model.fit(channel.X_train,
-                       channel.y_train,
-                       batch_size=self.config.lstm_batch_size,
-                       epochs=self.config.epochs,
-                       validation_split=self.config.validation_split,
-                       callbacks=cbs,
-                       verbose=True)
+        self.history = self.model.fit(channel.X_train,
+                                      channel.y_train,
+                                      batch_size=self.config.lstm_batch_size,
+                                      epochs=self.config.epochs,
+                                      validation_split=self.config.validation_split,
+                                      callbacks=cbs,
+                                      verbose=True)
 
-    def save(self):
+    def save(self,Path=None):
         """
         Save trained model.
         """
 
-        self.model.save(os.path.join('data', self.run_id, 'models',
+        self.model.save(os.path.join(Path, 'data', self.run_id, 'models',
                                      '{}.h5'.format(self.chan_id)))
 
     def aggregate_predictions(self, y_hat_batch, method='first'):
@@ -175,7 +179,7 @@ class Model:
 
         channel.y_hat = self.y_hat
 
-        np.save(os.path.join('data', self.run_id, 'y_hat', '{}.npy'
+        np.save(Path, os.path.join('data', self.run_id, 'y_hat', '{}.npy'
                              .format(self.chan_id)), self.y_hat)
 
         return channel
