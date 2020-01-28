@@ -30,6 +30,7 @@ class Channel:
         """
 
         self.id = chan_id
+        self.name = "Channel"
         self.config = config
         self.X_train = None
         self.y_train = None
@@ -38,6 +39,27 @@ class Channel:
         self.y_hat = None
         self.train = None
         self.test = None
+
+    def __str__(self):
+        print("Here!")
+        out = '\n%s:%s' % (self.__class__.__name__, self.name)
+        try:
+            out = out + "\nTraining data shape: " + str(self.X_train.shape) + ", " + str(self.y_train.shape)
+        except:
+            pass
+        try:
+            out = out + "\n  Test data shape: " + str(self.X_test.shape) + ", " + str(self.y_test.shape)
+        except:
+            pass
+        try:
+            out = out + "\n  Pred data shape: " + str(self.y_hat.shape)
+        except:
+            pass
+        try:
+            out = out + "\n  Original data shape: " + str(self.train.shape) + ", " + str(self.test.shape)
+        except:
+            pass
+        return out
 
     def shape_data(self, arr, train=True):
         """Shape raw input streams for ingestion into LSTM. config.l_s specifies
@@ -66,13 +88,16 @@ class Channel:
             self.X_test = data[:, :-self.config.n_predictions, :]
             self.y_test = data[:, -self.config.n_predictions:, 0]  # telemetry value is at position 0
 
-    def load_data(self):
+    def load_data(self, Path=None):
         """
         Load train and test data from local.
         """
+        if Path is None:
+            Path = ''
+
         try:
-            self.train = np.load(os.path.join("data", "train", "{}.npy".format(self.id)))
-            self.test = np.load(os.path.join("data", "test", "{}.npy".format(self.id)))
+            self.train = np.load(os.path.join(Path, "data", "train", "{}.npy".format(self.id)))
+            self.test = np.load(os.path.join(Path, "data", "test", "{}.npy".format(self.id)))
 
         except FileNotFoundError as e:
             logger.critical(e)
