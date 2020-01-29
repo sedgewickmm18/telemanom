@@ -1,5 +1,5 @@
 from keras.models import Sequential, load_model
-from keras.callbacks import History, EarlyStopping, Callback
+from keras.callbacks import History, EarlyStopping
 from keras.layers.recurrent import LSTM
 from keras.layers.core import Dense, Activation, Dropout
 import numpy as np
@@ -12,7 +12,7 @@ logger = logging.getLogger('telemanom')
 
 
 class Model:
-    def __init__(self, config, run_id, channel, Path=None):
+    def __init__(self, config, run_id, channel, Path=None, Train=True):
         """
         Loads/trains RNN and predicts future telemetry values for a channel.
 
@@ -31,6 +31,7 @@ class Model:
             model (obj): trained RNN model for predicting channel values
         """
 
+        self.name = "Model"
         self.config = config
         self.chan_id = channel.id
         self.run_id = run_id
@@ -38,7 +39,13 @@ class Model:
         self.model = None
         self.history = None
 
-        if not self.config.train:
+        if Path is None:
+            Path=""
+
+        # bypass default training in constructor
+        if not Train:
+            self.new_model((None, channel.X_train.shape[2]))
+        elif not self.config.train:
             try:
                 self.load()
             except FileNotFoundError:
@@ -53,7 +60,8 @@ class Model:
             self.save(Path)
 
     def __str__(self):
-        return str(self.model.summary())
+        out = '\n%s:%s' % (self.__class__.__name__, self.name) + "\n" + str(self.model.summary())
+        return out
 
     def load(self):
         """
@@ -64,7 +72,7 @@ class Model:
         self.model = load_model(os.path.join('data', self.config.use_id,
                                              'models', self.chan_id + '.h5'))
 
-    def train_new(self, channel):
+    def new_model(self, Input_shape):
         """
         Train LSTM model according to specifications in config.yaml.
 
@@ -73,16 +81,14 @@ class Model:
                 for X,y for a single channel
         """
 
-        cbs = [History(), EarlyStopping(monitor='val_loss',
-                                        patience=self.config.patience,
-                                        min_delta=self.config.min_delta,
-                                        verbose=0)]
+        if self.model is not None:
+            return
 
         self.model = Sequential()
 
         self.model.add(LSTM(
             self.config.layers[0],
-            input_shape=(None, channel.X_train.shape[2]),
+            input_shape=Input_shape,
             return_sequences=True))
         self.model.add(Dropout(self.config.dropout))
 
@@ -98,6 +104,23 @@ class Model:
         self.model.compile(loss=self.config.loss_metric,
                            optimizer=self.config.optimizer)
 
+    def train_new(self, channel):
+        """
+        Train LSTM model according to specifications in config.yaml.
+
+        Args:
+            channel (obj): Channel class object containing train/test data
+                for X,y for a single channel
+        """
+
+        # instatiate model with input shape from training data
+        self.new_model((None, channel.X_train.shape[2]))
+
+        cbs = [History(), EarlyStopping(monitor='val_loss',
+                                        patience=self.config.patience,
+                                        min_delta=self.config.min_delta,
+                                        verbose=0)]
+
         self.history = self.model.fit(channel.X_train,
                                       channel.y_train,
                                       batch_size=self.config.lstm_batch_size,
@@ -106,10 +129,12 @@ class Model:
                                       callbacks=cbs,
                                       verbose=True)
 
-    def save(self,Path=None):
+    def save(self, Path=None):
         """
         Save trained model.
         """
+        if Path is None:
+            Path=""
 
         self.model.save(os.path.join(Path, 'data', self.run_id, 'models',
                                      '{}.h5'.format(self.chan_id)))
@@ -144,7 +169,7 @@ class Model:
         agg_y_hat_batch = agg_y_hat_batch.reshape(len(agg_y_hat_batch), 1)
         self.y_hat = np.append(self.y_hat, agg_y_hat_batch)
 
-    def batch_predict(self, channel):
+    def batch_predict(self, channel, Path=None):
         """
         Used trained LSTM model to predict test data arriving in batches.
 
@@ -158,6 +183,9 @@ class Model:
 
         num_batches = int((channel.y_test.shape[0] - self.config.l_s)
                           / self.config.batch_size)
+
+        logger.debug("predict: num_batches ", num_batches)
+
         if num_batches < 0:
             raise ValueError('l_s ({}) too large for stream length {}.'
                              .format(self.config.l_s, channel.y_test.shape[0]))
@@ -173,13 +201,19 @@ class Model:
 
             X_test_batch = channel.X_test[prior_idx:idx]
             y_hat_batch = self.model.predict(X_test_batch)
+
+            logger.debug("predict: batch ", i, " - ", y_hat_batch.shape)
+
             self.aggregate_predictions(y_hat_batch)
 
         self.y_hat = np.reshape(self.y_hat, (self.y_hat.size,))
 
         channel.y_hat = self.y_hat
 
-        np.save(Path, os.path.join('data', self.run_id, 'y_hat', '{}.npy'
-                             .format(self.chan_id)), self.y_hat)
+        if Path is None:
+            Path=""
+
+        np.save(os.path.join(Path, 'data', self.run_id, 'y_hat', '{}.npy'
+                                   .format(self.chan_id)), self.y_hat)
 
         return channel

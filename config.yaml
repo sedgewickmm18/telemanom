@@ -2,7 +2,8 @@
 #===================================
 train: Train # train new or existing model for each channel
 predict: Train # generate new predicts or, if False, use predictions stored locally
-use_id: "2018-05-19_15.00.10"
+#use_id: "2018-05-19_15.00.10"
+use_id: "2020-01-29_15.00.10"
 
 # number of values to evaluate in each batch
 batch_size: 70

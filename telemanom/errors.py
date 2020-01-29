@@ -8,7 +8,7 @@ logger = logging.getLogger('telemanom')
 
 
 class Errors:
-    def __init__(self, channel, config, run_id):
+    def __init__(self, channel, config, run_id, Path=None):
         """
         Batch processing of errors between actual and predicted values
         for a channel.
@@ -36,6 +36,7 @@ class Errors:
         """
 
         self.config = config
+        self.name = "Errors"
         self.window_size = self.config.window_size
         self.n_windows = int((channel.y_test.shape[0] -
                               (self.config.batch_size * self.window_size))
@@ -63,13 +64,20 @@ class Errors:
             self.e_s[:self.config.l_s] = \
                 [np.mean(self.e_s[:self.config.l_s * 2])] * self.config.l_s
 
-        np.save(os.path.join('data', run_id, 'smoothed_errors', '{}.npy'
+        if Path is None:
+            Path = ""
+
+        np.save(os.path.join(Path, 'data', run_id, 'smoothed_errors', '{}.npy'
                              .format(channel.id)),
                 np.array(self.e_s))
 
         self.normalized = np.mean(self.e / np.ptp(channel.y_test))
         logger.info("normalized prediction error: {0:.2f}"
                     .format(self.normalized))
+
+    def __str__(self):
+        out = '\n%s:%s' % (self.__class__.__name__, self.name)
+        return out
 
     def adjust_window_size(self, channel):
         """
@@ -123,7 +131,7 @@ class Errors:
         for i in range(0, self.n_windows+1):
             prior_idx = i * self.config.batch_size
             idx = (self.config.window_size * self.config.batch_size) \
-                  + (i * self.config.batch_size)
+                + (i * self.config.batch_size)
             if i == self.n_windows:
                 idx = channel.y_test.shape[0]
 
@@ -304,11 +312,11 @@ class ErrorWindow:
                 E_seq = [(g[0], g[-1]) for g in groups if not g[0] == g[-1]]
 
                 mean_perc_decrease = (self.mean_e_s - np.mean(pruned_e_s)) \
-                                     / self.mean_e_s
+                    / self.mean_e_s
                 sd_perc_decrease = (self.sd_e_s - np.std(pruned_e_s)) \
-                                   / self.sd_e_s
+                    / self.sd_e_s
                 score = (mean_perc_decrease + sd_perc_decrease) \
-                        / (len(E_seq) ** 2 + len(i_anom))
+                    / (len(E_seq) ** 2 + len(i_anom))
 
                 # sanity checks / guardrails
                 if score >= max_score and len(E_seq) <= 5 and \

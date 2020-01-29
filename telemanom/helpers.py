@@ -45,24 +45,34 @@ class Config:
         return channel_group_lookup
 
 
-def make_dirs(_id):
+def make_dirs(_id, Config=None, Path=None):
     '''Create directories for storing data in repo (using datetime ID) if they don't already exist'''
 
-    config = Config("config.yaml")
+    if Config is None:
+        config = Config("config.yaml")
+    else:
+        config = Config
+
+    if Path is None:
+        Path = ""
 
     if not config.train or not config.predict:
-        if not os.path.isdir('data/%s' %config.use_id):
-            raise ValueError("Run ID {} is not valid. If loading prior models or predictions, must provide valid ID.".format(_id))
+        if not os.path.isdir(os.path.join(Path, 'data', config.use_id)):
+            raise ValueError(
+                "Run ID {} is not valid. If loading prior models or predictions, must provide valid ID.".format(_id))
 
-    paths = ['data', 'data/%s' %_id, 'data/logs', 'data/%s/models' %_id, 'data/%s/smoothed_errors' %_id, 'data/%s/y_hat' %_id]
+    paths = ['data', 'data/%s' % _id, 'data/logs', 'data/%s/models' % _id,
+             'data/%s/smoothed_errors' % _id, 'data/%s/y_hat' % _id]
 
     for p in paths:
-        if not os.path.isdir(p):
-            os.mkdir(p)
+        P = os.path.join(Path, p)
+        if not os.path.isdir(P):
+            os.mkdir(P)
+
 
 def setup_logging():
     '''Configure logging object to track parameter settings, training, and evaluation.
-    
+
     Args:
         config(obj): Global object specifying system runtime params.
 

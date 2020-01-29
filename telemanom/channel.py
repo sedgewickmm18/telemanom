@@ -41,7 +41,6 @@ class Channel:
         self.test = None
 
     def __str__(self):
-        print("Here!")
         out = '\n%s:%s' % (self.__class__.__name__, self.name)
         try:
             out = out + "\nTraining data shape: " + str(self.X_train.shape) + ", " + str(self.y_train.shape)
