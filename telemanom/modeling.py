@@ -169,7 +169,7 @@ class Model:
         agg_y_hat_batch = agg_y_hat_batch.reshape(len(agg_y_hat_batch), 1)
         self.y_hat = np.append(self.y_hat, agg_y_hat_batch)
 
-    def batch_predict(self, channel, Path=None):
+    def batch_predict(self, channel, Train=False, Path=None):
         """
         Used trained LSTM model to predict test data arriving in batches.
 
@@ -181,8 +181,12 @@ class Model:
             channel (obj): Channel class object with y_hat values as attribute
         """
 
-        num_batches = int((channel.y_test.shape[0] - self.config.l_s)
-                          / self.config.batch_size)
+        if Train:
+            num_batches = int((channel.y_train.shape[0] - self.config.l_s)
+                               / self.config.batch_size)
+        else:
+            num_batches = int((channel.y_test.shape[0] - self.config.l_s)
+                               / self.config.batch_size)
 
         logger.debug("predict: num_batches ", num_batches)
 
@@ -197,10 +201,17 @@ class Model:
 
             if i + 1 == num_batches + 1:
                 # remaining values won't necessarily equal batch size
-                idx = channel.y_test.shape[0]
+                if Train:
+                    idx = channel.y_test.shape[0]
+                else:
+                    idx = channel.y_train.shape[0]
 
-            X_test_batch = channel.X_test[prior_idx:idx]
-            y_hat_batch = self.model.predict(X_test_batch)
+            if Train:
+                X_train_batch = channel.X_train[prior_idx:idx]
+                y_hat_batch = self.model.predict(X_train_batch)
+            else:
+                X_test_batch = channel.X_test[prior_idx:idx]
+                y_hat_batch = self.model.predict(X_test_batch)
 
             logger.debug("predict: batch ", i, " - ", y_hat_batch.shape)
 
@@ -208,7 +219,10 @@ class Model:
 
         self.y_hat = np.reshape(self.y_hat, (self.y_hat.size,))
 
-        channel.y_hat = self.y_hat
+        if Train:
+            channel.y_train_hat = self.y_hat
+        else:
+            channel.y_hat = self.y_hat
 
         if Path is None:
             Path=""
