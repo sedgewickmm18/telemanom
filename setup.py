@@ -7,7 +7,7 @@ with open('requirements.txt') as f:
     requirements = f.read().splitlines()
 
 setup(
-    name='mmfunctions',
+    name='telemanom',
     version='0.0.2',
     packages=find_packages(),
     install_requires=requirements
