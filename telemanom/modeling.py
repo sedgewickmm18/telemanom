@@ -3,6 +3,7 @@ from keras.callbacks import History, EarlyStopping
 from keras.layers.recurrent import LSTM
 from keras.layers.core import Dense, Activation, Dropout
 import numpy as np
+import scipy as sp
 import os
 import logging
 
@@ -40,7 +41,7 @@ class Model:
         self.history = None
 
         if Path is None:
-            Path=""
+            Path = ""
 
         # bypass default training in constructor
         if not Train:
@@ -134,7 +135,7 @@ class Model:
         Save trained model.
         """
         if Path is None:
-            Path=""
+            Path = ""
 
         self.model.save(os.path.join(Path, 'data', self.run_id, 'models',
                                      '{}.h5'.format(self.chan_id)))
@@ -183,10 +184,10 @@ class Model:
 
         if Train:
             num_batches = int((channel.y_train.shape[0] - self.config.l_s)
-                               / self.config.batch_size)
+                              / self.config.batch_size)
         else:
             num_batches = int((channel.y_test.shape[0] - self.config.l_s)
-                               / self.config.batch_size)
+                              / self.config.batch_size)
 
         logger.debug("predict: num_batches ", num_batches)
 
@@ -222,10 +223,14 @@ class Model:
         if Train:
             channel.y_train_hat = self.y_hat
         else:
-            channel.y_hat = self.y_hat
+            if self.config.FFT:
+                logger.info('FFT modelling')
+                channel.y_hat = sp.fft.irfft(self.y_hat)
+            else:
+                channel.y_hat = self.y_hat
 
         if Path is None:
-            Path=""
+            Path = ""
 
         np.save(os.path.join(Path, 'data', self.run_id, 'y_hat', '{}.npy'
                                    .format(self.chan_id)), self.y_hat)

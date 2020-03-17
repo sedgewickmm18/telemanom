@@ -28,6 +28,10 @@ class Config:
         for k, v in self.dictionary.items():
             setattr(self, k, v)
 
+    def __str__(self):
+        out = yaml.dump(self.dictionary)
+        return out
+
     def build_group_lookup(self, path_to_groupings):
 
         channel_group_lookup = {}

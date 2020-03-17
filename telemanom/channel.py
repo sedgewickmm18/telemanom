@@ -1,4 +1,5 @@
 import numpy as np
+import scipy as sp
 import os
 import logging
 
@@ -39,24 +40,30 @@ class Channel:
         self.y_hat = None
         self.train = None
         self.test = None
+        self.ffttrain = None
+        self.ffttest = None
 
     def __str__(self):
         out = '\n%s:%s' % (self.__class__.__name__, self.name)
         try:
             out = out + "\nTraining data shape: " + str(self.X_train.shape) + ", " + str(self.y_train.shape)
-        except:
+        except Exception as e1:
+            logger.debug(str(e1))
             pass
         try:
             out = out + "\n  Test data shape: " + str(self.X_test.shape) + ", " + str(self.y_test.shape)
-        except:
+        except Exception as e2:
+            logger.debug(str(e2))
             pass
         try:
             out = out + "\n  Pred data shape: " + str(self.y_hat.shape)
-        except:
+        except Exception as e3:
+            logger.debug(str(e3))
             pass
         try:
             out = out + "\n  Original data shape: " + str(self.train.shape) + ", " + str(self.test.shape)
-        except:
+        except Exception as e4:
+            logger.debug(str(e4))
             pass
         return out
 
@@ -73,8 +80,23 @@ class Channel:
         """
 
         data = []
+        canweFFT = (arr.shape[1] == 1) and self.config.FFT
+
+        logger.info('FFT channel: ' + str(canweFFT))
+
+        arr_fft = None
+        if canweFFT:
+            arr_fft = sp.fft.rfft(arr).real
+
+        print(arr.shape)
         for i in range(len(arr) - self.config.l_s - self.config.n_predictions):
-            data.append(arr[i:i + self.config.l_s + self.config.n_predictions])
+            # FFT for the univariate case only
+            if canweFFT:
+                snippet = arr_fft[i:i + self.config.l_s + self.config.n_predictions]
+            else:
+                snippet = arr[i:i + self.config.l_s + self.config.n_predictions]
+            data.append(snippet)
+
         data = np.array(data)
 
         assert len(data.shape) == 3
@@ -83,9 +105,11 @@ class Channel:
             np.random.shuffle(data)
             self.X_train = data[:, :-self.config.n_predictions, :]
             self.y_train = data[:, -self.config.n_predictions:, 0]  # telemetry value is at position 0
+            self.ffttrain = arr_fft
         else:
             self.X_test = data[:, :-self.config.n_predictions, :]
             self.y_test = data[:, -self.config.n_predictions:, 0]  # telemetry value is at position 0
+            self.ffttest = arr_fft
 
     def load_data(self, Path=None):
         """
