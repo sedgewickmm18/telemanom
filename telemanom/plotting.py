@@ -5,6 +5,7 @@ import sys
 from telemanom.helpers import Config
 sys.path.append('..')
 
+
 class Plotter:
     def __init__(self, run_id, config_path='config.yaml'):
         """
@@ -95,7 +96,7 @@ class Plotter:
                 print('Recall: {0:.2f}'.format(
                     float(self.result_df['true_positives'].sum()) /
                     float(self.result_df['true_positives'].sum()
-                        + self.result_df['false_negatives'].sum())))
+                          + self.result_df['false_negatives'].sum())))
             except ZeroDivisionError:
                 print('Precision: NaN')
                 print('Recall: NaN')
@@ -188,14 +189,14 @@ class Plotter:
                                            'predicted', 0, None, plot_values)
 
         train_df = pd.DataFrame({
-            'train': plot_values['train'][:,0]
+            'train': plot_values['train'][:, 0]
         })
 
         y_df = pd.DataFrame({
             'y_hat': plot_values['y_hat'].reshape(-1,)
         })
 
-        y = plot_values['test'][self.config.l_s:-self.config.n_predictions][:,0]
+        y = plot_values['test'][self.config.l_s:-self.config.n_predictions][:, 0]
         y_df['y'] = y
         if not len(y) == len(plot_values['y_hat']):
             modified_l_s = len(plot_values['y_test']) \
@@ -238,9 +239,3 @@ class Plotter:
 
             self.plot_channel(channel['chan_id'], plot_train=plot_train,
                               plot_errors=plot_errors)
-
-
-
-
-
-
