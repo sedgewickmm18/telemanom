@@ -1,15 +1,88 @@
-from keras.models import Sequential, load_model
-from keras.callbacks import History, EarlyStopping
-from keras.layers.recurrent import LSTM
-from keras.layers.core import Dense, Activation, Dropout
+
 import numpy as np
 import scipy as sp
 import os
 import logging
+from sklearn.model_selection import train_test_split
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, Dataset, TensorDataset
+from torch.utils.data.dataset import random_split
+
+from keras.models import Sequential, load_model
+from keras.callbacks import History, EarlyStopping
+from keras.layers.recurrent import LSTM
+from keras.layers.core import Dense, Activation, Dropout
 
 # suppress tensorflow CPU speedup warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 logger = logging.getLogger('telemanom')
+
+
+def initialize_weights(model):
+    print('initialize weights')
+    if type(model) in [nn.Linear]:
+        nn.init.xavier_uniform_(model.weight.data)
+    elif type(model) in [nn.LSTM, nn.RNN, nn.GRU]:
+        nn.init.xavier_uniform_(model.weight_hh_l0)
+        nn.init.xavier_uniform_(model.weight_ih_l0)
+
+
+class LSTM_2L(nn.Module):
+    def __init__(self, n_features = 1, hidden_dims = [80,80], seq_length = 250,
+                 batch_size = 64, n_predictions = 10, dropout = 0.3):
+        super(LSTM_2L, self).__init__()
+        print ('LSTM_2L', n_features, hidden_dims, seq_length, batch_size, n_predictions, dropout)
+
+        self.n_features = n_features
+        self.hidden_dims = hidden_dims
+        self.seq_length = seq_length
+        self.num_layers = len(self.hidden_dims)
+        self.batch_size = batch_size
+
+        self.lstm1 = nn.LSTM(
+            input_size = self.n_features,
+            hidden_size = self.hidden_dims[0],
+            batch_first = True,
+            dropout = dropout,
+            num_layers = 2)
+
+        self.linear = nn.Linear(self.hidden_dims[1], n_predictions)
+        self.init_hidden_state()
+
+    def init_hidden_state(self):
+        #initialize hidden states (h_n, c_n)
+
+        print('init hidden state')
+
+        # hidden[0] size -> (2, batch_size, hidden dim0)
+        # hidden[1] size -> (2, hidden dim0, hidden_dim1)
+        print ('Hidden dimension 0: ', self.num_layers, self.batch_size, self.hidden_dims[0])
+        print ('Hidden dimension 1: ', self.num_layers, self.batch_size, self.hidden_dims[0])
+        #print ('Hidden dimension 1: ', self.num_layers, self.hidden_dims[0], self.hidden_dims[1])
+        self.hidden = (
+            torch.randn(self.num_layers, self.batch_size, self.hidden_dims[0]), #.to(self.device),
+            #torch.randn(self.num_layers, self.hidden_dims[0], self.hidden_dims[1]) #.to(self.device)
+            torch.randn(self.num_layers, self.batch_size, self.hidden_dims[0]), #.to(self.device),
+            )
+
+    def forward(self, sequences):
+
+        try:
+            batch_size, seq_len, n_features = sequences.size()  # batch first
+            print ('forward: ', batch_size, seq_len, n_features)
+        except Exception:
+            print ('forward issue', sequences)
+
+        #hidden[0] = h_n, hidden[1] = c_n
+        lstm1_out , (h1_n, c1_n) = self.lstm1(sequences, (self.hidden[0], self.hidden[1]))
+
+        last_time_step = lstm1_out[:,-1,:]
+
+        y_pred = self.linear(last_time_step)
+
+        return y_pred
 
 
 class Model:
@@ -85,6 +158,13 @@ class Model:
         if self.model is not None:
             return
 
+        self.model = LSTM_2L(n_features = Input_shape[1], hidden_dims = self.config.layers,
+                 seq_length = self.config.l_s, batch_size = self.config.lstm_batch_size,
+                 n_predictions = self.config.n_predictions, dropout = self.config.dropout)
+
+        print ('input shape: ', Input_shape)
+
+        return
         self.model = Sequential()
 
         self.model.add(LSTM(
@@ -116,6 +196,72 @@ class Model:
 
         # instatiate model with input shape from training data
         self.new_model((None, channel.X_train.shape[2]))
+
+        self.model.apply(initialize_weights)
+
+        training_losses = []
+        validation_losses = []
+
+        loss_function = nn.MSELoss()
+
+        optimizer = torch.optim.Adam(self.model.parameters())
+
+        train_hist = np.zeros(self.config.epochs)
+
+        X_train, X_validation, y_train, y_validation = train_test_split(
+            channel.X_train, channel.y_train, train_size=0.8)
+
+        print ('Shapes: ', channel.X_train.shape, channel.y_train.shape)
+        print ('Training shapes: ', X_train.shape, y_train.shape)
+        print ('Validation shapes: ', X_validation.shape, y_validation.shape)
+        train_dataset=TensorDataset(torch.Tensor(X_train),torch.Tensor(y_train))
+        validation_dataset=TensorDataset(torch.Tensor(X_validation),torch.Tensor(y_validation))
+
+        train_loader = DataLoader(dataset=train_dataset, batch_size=self.config.lstm_batch_size, drop_last=True, shuffle=True)
+        val_loader = DataLoader(dataset=validation_dataset, batch_size=self.config.lstm_batch_size, drop_last=True, shuffle=True)
+
+        self.model.train()
+
+        print("Beginning model training...")
+
+        for t in range(self.config.epochs):
+            train_losses_batch = []
+            print ('Epoch ', t)
+
+            i = 0
+            for X_batch_train, y_batch_train in train_loader:
+                print ('Batch ', i)
+                i += 1
+                y_hat_train = self.model(X_batch_train)
+                loss = loss_function(y_hat_train.float(), y_batch_train)
+                train_loss_batch = loss.item()
+                loss.backward()
+                optimizer.step()
+                optimizer.zero_grad()
+                train_losses_batch.append(train_loss_batch)
+
+            training_loss = np.mean(train_losses_batch)
+            print ('After batch ', i-1, training_loss)
+            training_losses.append(training_loss)
+
+            with torch.no_grad():
+                val_losses_batch = []
+                for X_val_batch, y_val_batch in val_loader:
+                    self.model.eval()
+                    y_hat_val = self.model(X_val_batch)
+                    val_loss_batch = loss_function(y_hat_val.float(), y_val_batch).item()
+                    val_losses_batch.append(val_loss_batch)
+                validation_loss = np.mean(val_losses_batch)
+                validation_losses.append(validation_loss)
+
+            print(f"[{t+1}] Training loss: {training_loss} \t Validation loss: {validation_loss} ")
+            if training_loss < 0.02 and validation_loss < 0.02:
+                break
+
+        print('Training complete...')
+
+        return self.model.eval()
+
 
         cbs = [History(), EarlyStopping(monitor='val_loss',
                                         patience=self.config.patience,
