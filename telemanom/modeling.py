@@ -5,15 +5,17 @@ import os
 import logging
 from sklearn.model_selection import train_test_split
 import torch
+import torch.autograd
+from torch.autograd import Variable
 import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset, TensorDataset
 from torch.utils.data.dataset import random_split
 
-from keras.models import Sequential, load_model
-from keras.callbacks import History, EarlyStopping
-from keras.layers.recurrent import LSTM
-from keras.layers.core import Dense, Activation, Dropout
+#from keras.models import Sequential, load_model
+#from keras.callbacks import History, EarlyStopping
+#from keras.layers.recurrent import LSTM
+#from keras.layers.core import Dense, Activation, Dropout
 
 # suppress tensorflow CPU speedup warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
@@ -29,6 +31,14 @@ def initialize_weights(model):
         nn.init.xavier_uniform_(model.weight_ih_l0)
 
 
+def repackage_hidden(h):
+    """Wraps hidden states in new Tensors, to detach them from their history."""
+    if isinstance(h, torch.Tensor):
+        return h.detach()
+    else:
+        return tuple(repackage_hidden(v) for v in h)
+
+
 class LSTM_2L(nn.Module):
     def __init__(self, n_features = 1, hidden_dims = [80,80], seq_length = 250,
                  batch_size = 64, n_predictions = 10, dropout = 0.3):
@@ -36,53 +46,56 @@ class LSTM_2L(nn.Module):
         print ('LSTM_2L', n_features, hidden_dims, seq_length, batch_size, n_predictions, dropout)
 
         self.n_features = n_features
-        self.hidden_dims = hidden_dims
+        self.hidden_dim = hidden_dims[0]  # ignore second component for pytorch
         self.seq_length = seq_length
-        self.num_layers = len(self.hidden_dims)
+        self.num_layers = len(hidden_dims)
         self.batch_size = batch_size
 
+        # using nn.LSTM so both layers end up with the same number of hidden dimensions
         self.lstm1 = nn.LSTM(
             input_size = self.n_features,
-            hidden_size = self.hidden_dims[0],
+            hidden_size = self.hidden_dim,
             batch_first = True,
             dropout = dropout,
             num_layers = 2)
 
-        self.linear = nn.Linear(self.hidden_dims[1], n_predictions)
-        self.init_hidden_state()
+        self.linear = nn.Linear(self.hidden_dim, n_predictions)
+        self.hidden = self.init_hidden_state()
 
     def init_hidden_state(self):
-        #initialize hidden states (h_n, c_n)
+        #initialize hidden states (h_0, c_0)
+        print ('Hidden dimensions are: ', self.num_layers, self.batch_size, self.hidden_dim)
 
-        print('init hidden state')
-
-        # hidden[0] size -> (2, batch_size, hidden dim0)
-        # hidden[1] size -> (2, hidden dim0, hidden_dim1)
-        print ('Hidden dimension 0: ', self.num_layers, self.batch_size, self.hidden_dims[0])
-        print ('Hidden dimension 1: ', self.num_layers, self.batch_size, self.hidden_dims[0])
-        #print ('Hidden dimension 1: ', self.num_layers, self.hidden_dims[0], self.hidden_dims[1])
-        self.hidden = (
-            torch.randn(self.num_layers, self.batch_size, self.hidden_dims[0]), #.to(self.device),
-            #torch.randn(self.num_layers, self.hidden_dims[0], self.hidden_dims[1]) #.to(self.device)
-            torch.randn(self.num_layers, self.batch_size, self.hidden_dims[0]), #.to(self.device),
+        return (
+            Variable(torch.randn(self.num_layers, self.batch_size, self.hidden_dim)), #.to(self.device),
+            Variable(torch.randn(self.num_layers, self.batch_size, self.hidden_dim)) #.to(self.device),
             )
 
-    def forward(self, sequences):
+    def forward(self, sequences, hidden = None):
 
         try:
             batch_size, seq_len, n_features = sequences.size()  # batch first
-            print ('forward: ', batch_size, seq_len, n_features)
+            print ('forward| Batch size: ', batch_size, ' Sequence length: ', seq_len, 'Output length:', n_features)
         except Exception:
             print ('forward issue', sequences)
 
-        #hidden[0] = h_n, hidden[1] = c_n
-        lstm1_out , (h1_n, c1_n) = self.lstm1(sequences, (self.hidden[0], self.hidden[1]))
+        #  for training
+        if hidden is not None:
+            self.hidden = hidden
 
-        last_time_step = lstm1_out[:,-1,:]
+        lstm1_out, hidden_out = self.lstm1(sequences, hidden)
 
+        last_time_step = lstm1_out[:,-1,:]    # from (batch.size, input.size, hidden_dim.size)
+
+        #lstm1_out_reshaped = lstm1_out.reshape(tuple((-1, *lstm1_out.shape[2:])))
+        print ('Shapes ', lstm1_out.shape, last_time_step.shape, last_time_step.shape)
+
+        #last_time_step = lstm1_out.view(-1, self.hidden_dims[0])
+
+        #y_pred = self.linear(lstm1_out_reshaped)
         y_pred = self.linear(last_time_step)
 
-        return y_pred
+        return y_pred, hidden_out
 
 
 class Model:
@@ -143,8 +156,12 @@ class Model:
         """
 
         logger.info('Loading pre-trained model')
-        self.model = load_model(os.path.join('data', self.config.use_id,
-                                             'models', self.chan_id + '.h5'))
+
+        self.model = self.model.load_state_dict(torch.load(os.path.join('data', self.config.use_id,
+                                             'models', self.chan_id + '.h5')))
+
+        #self.model = load_model(os.path.join('data', self.config.use_id,
+        #                                     'models', self.chan_id + '.h5'))
 
     def new_model(self, Input_shape):
         """
@@ -165,25 +182,7 @@ class Model:
         print ('input shape: ', Input_shape)
 
         return
-        self.model = Sequential()
 
-        self.model.add(LSTM(
-            self.config.layers[0],
-            input_shape=Input_shape,
-            return_sequences=True))
-        self.model.add(Dropout(self.config.dropout))
-
-        self.model.add(LSTM(
-            self.config.layers[1],
-            return_sequences=False))
-        self.model.add(Dropout(self.config.dropout))
-
-        self.model.add(Dense(
-            self.config.n_predictions))
-        self.model.add(Activation('linear'))
-
-        self.model.compile(loss=self.config.loss_metric,
-                           optimizer=self.config.optimizer)
 
     def train_new(self, channel):
         """
@@ -224,6 +223,7 @@ class Model:
 
         print("Beginning model training...")
 
+        hidden = self.model.init_hidden_state()
         for t in range(self.config.epochs):
             train_losses_batch = []
             print ('Epoch ', t)
@@ -231,8 +231,15 @@ class Model:
             i = 0
             for X_batch_train, y_batch_train in train_loader:
                 print ('Batch ', i)
+
+                #self.model.zero_grad()
+
                 i += 1
-                y_hat_train = self.model(X_batch_train)
+
+                # detach hidden dimensions
+                hidden = repackage_hidden(hidden)
+                y_hat_train, hidden = self.model(X_batch_train, hidden=hidden)
+
                 loss = loss_function(y_hat_train.float(), y_batch_train)
                 train_loss_batch = loss.item()
                 loss.backward()
@@ -248,7 +255,7 @@ class Model:
                 val_losses_batch = []
                 for X_val_batch, y_val_batch in val_loader:
                     self.model.eval()
-                    y_hat_val = self.model(X_val_batch)
+                    y_hat_val, _ = self.model(X_val_batch, hidden=hidden)
                     val_loss_batch = loss_function(y_hat_val.float(), y_val_batch).item()
                     val_losses_batch.append(val_loss_batch)
                 validation_loss = np.mean(val_losses_batch)
@@ -260,21 +267,8 @@ class Model:
 
         print('Training complete...')
 
+        # return the model after switching off training mode
         return self.model.eval()
-
-
-        cbs = [History(), EarlyStopping(monitor='val_loss',
-                                        patience=self.config.patience,
-                                        min_delta=self.config.min_delta,
-                                        verbose=0)]
-
-        self.history = self.model.fit(channel.X_train,
-                                      channel.y_train,
-                                      batch_size=self.config.lstm_batch_size,
-                                      epochs=self.config.epochs,
-                                      validation_split=self.config.validation_split,
-                                      callbacks=cbs,
-                                      verbose=True)
 
     def save(self, Path=None):
         """
@@ -355,10 +349,12 @@ class Model:
 
             if Train:
                 X_train_batch = channel.X_train[prior_idx:idx]
-                y_hat_batch = self.model.predict(X_train_batch)
+                y_hat_batch,_ = self.model(X_train_batch)
+                #y_hat_batch = self.model.predict(X_train_batch)
             else:
                 X_test_batch = channel.X_test[prior_idx:idx]
-                y_hat_batch = self.model.predict(X_test_batch)
+                y_hat_batch,_ = self.model(X_test_batch)
+                #y_hat_batch = self.model.predict(X_test_batch)
 
             logger.debug("predict: batch ", i, " - ", y_hat_batch.shape)
 
