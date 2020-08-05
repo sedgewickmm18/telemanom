@@ -4,6 +4,7 @@ import sys
 import numpy as np
 import pandas as pd
 import torch
+import onnxruntime
 
 import telemanom
 from telemanom.helpers import Config
@@ -12,10 +13,13 @@ import telemanom.helpers as helpers
 from telemanom.channel import Channel
 from telemanom.modeling import Model
 
+local = False
 try:
     model_path = os.environ["RESULT_DIR"]+"/model"
 except Exception:
-    model_path = './model/mytrainedpytorchmodel'
+    local = True
+    model_path = './model/mytrainedpytorchmodel.torch'
+model_input_path = './model/mytrainedpytorchmodel'
 
 print (model_path)
 
@@ -47,18 +51,26 @@ chan.shape_data(chan.test, train=False)
 model = Model(conf, conf.use_id, chan, "./", False)
 
 try:
-    model.model.load_state_dict(torch.load(model_path))
+    model.model.load_state_dict(torch.load(model_input_path))
     model.model.eval()
-except Exception:
+except Exception as e:
+    print('Load model failed with ', e)
     # drink a coffee - training takes roughly 30 minutes
     model.train_new(chan)
-    torch.save(model.model.state_dict(), model_path)
+    #torch.save(model.model.state_dict(), model_path)
+
+#model.train_new(chan)
+model.export(model_path)
 
 # save_path = saver.save(sess, model_path)
 print("Model saved in file: %s" % model_path)
 
-os.system("(cd $RESULT_DIR/model;tar cvfz ../saved_model.tar.gz .)")
-print(str(os.listdir(os.environ["RESULT_DIR"])))
-print(os.environ["RESULT_DIR"])
+if local:
+    os.system("(cd ./model;tar cvfz ../saved_model.tar.gz .)")
+    print(str(os.listdir('./')))
+else:
+    print(os.environ["RESULT_DIR"])
+    os.system("(cd $RESULT_DIR/model;tar cvfz ../saved_model.tar.gz .)")
+    print(str(os.listdir(os.environ["RESULT_DIR"])))
 sys.stdout.flush()
 

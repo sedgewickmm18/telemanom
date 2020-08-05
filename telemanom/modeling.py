@@ -11,6 +11,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset, TensorDataset
 from torch.utils.data.dataset import random_split
+import onnx
+import onnxruntime
 
 #from keras.models import Sequential, load_model
 #from keras.callbacks import History, EarlyStopping
@@ -124,6 +126,7 @@ class Model:
         self.run_id = run_id
         self.y_hat = np.array([])
         self.model = None
+        self.onnx_session = None
         self.history = None
 
         if Path is None:
@@ -162,6 +165,18 @@ class Model:
 
         #self.model = load_model(os.path.join('data', self.config.use_id,
         #                                     'models', self.chan_id + '.h5'))
+
+    def load_onnx(self, Path=None):
+        """
+        Load ONNX model
+        """
+
+        if Path is None:
+            Path = ""
+
+        # start an onnx session
+        self.onnx_session = onnxruntime.InferenceSession(Path)
+
 
     def new_model(self, Input_shape):
         """
@@ -270,15 +285,58 @@ class Model:
         # return the model after switching off training mode
         return self.model.eval()
 
+    def export(self, Path=None):
+        """
+        Export trained model as ONNX
+        """
+
+        # switch off training mode
+        self.model.eval()
+
+        if Path is None:
+            Path = ""
+
+        torch_in = None
+        torch_out = None
+
+        # switch off autograd, automatic differentiation
+        with torch.no_grad():
+
+            # input tensor
+            #torch_in = torch.randn(64, 80, 2, requires_grad=True)
+            torch_in = torch.randn(self.model.batch_size, self.model.hidden_dim,
+                                   self.model.n_features, requires_grad=True)
+
+            # test dimensions
+            torch_out,_ = self.model(torch_in)
+
+            # export - fixed batch size
+            torch.onnx.export(self.model, torch_in, Path)
+
+            # test model load
+            onnx_model = onnx.load(Path)
+
+            logger.debug('Checked model: ', str(onnx_model.graph.input[0]))
+
+            onnx.checker.check_model(onnx_model)
+
     def save(self, Path=None):
         """
         Save trained model.
         """
+
+        # switch off training mode
+        self.model.eval()
+
         if Path is None:
             Path = ""
 
-        self.model.save(os.path.join(Path, 'data', self.run_id, 'models',
-                                     '{}.h5'.format(self.chan_id)))
+        # save as native pytorch
+        torch.save(self.model.state_dict(), os.path.join(Path, 'data', self.run_id, 'models',
+                                                        '{}.torch'.format(self.chan_id)))
+
+        #self.model.save(os.path.join(Path, 'data', self.run_id, 'models',
+        #                             '{}.h5'.format(self.chan_id)))
 
     def aggregate_predictions(self, y_hat_batch, method='first'):
         """
@@ -349,11 +407,23 @@ class Model:
 
             if Train:
                 X_train_batch = channel.X_train[prior_idx:idx]
-                y_hat_batch,_ = self.model(X_train_batch)
+
+                # ONNX support
+                if self.onnx_session is not None:
+                    ort_outs = self.onnx_session.run(None, X_train_batch)
+                    y_hat_batch = ort_outs[0]
+                else:
+                    y_hat_batch,_ = self.model(X_train_batch)
                 #y_hat_batch = self.model.predict(X_train_batch)
             else:
                 X_test_batch = channel.X_test[prior_idx:idx]
-                y_hat_batch,_ = self.model(X_test_batch)
+
+                # ONNX support
+                if self.onnx_session is not None:
+                    ort_outs = self.onnx_session.run(None, X_test_batch)
+                    y_hat_batch = ort_outs[0]
+                else:
+                    y_hat_batch,_ = self.model(X_test_batch)
                 #y_hat_batch = self.model.predict(X_test_batch)
 
             logger.debug("predict: batch ", i, " - ", y_hat_batch.shape)
