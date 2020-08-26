@@ -1,4 +1,3 @@
-
 import numpy as np
 import scipy as sp
 import os
@@ -11,8 +10,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset, TensorDataset
 from torch.utils.data.dataset import random_split
-import onnx
-import onnxruntime
+# no onnx in WML
+#import onnx
 
 #from keras.models import Sequential, load_model
 #from keras.callbacks import History, EarlyStopping
@@ -170,6 +169,7 @@ class Model:
         """
         Load ONNX model
         """
+        import onnxruntime
 
         if Path is None:
             Path = ""
@@ -313,12 +313,14 @@ class Model:
             # export - fixed batch size
             torch.onnx.export(self.model, torch_in, Path)
 
-            # test model load
+            # test model load  - excluded for WML training
+            '''
             onnx_model = onnx.load(Path)
 
             logger.debug('Checked model: ', str(onnx_model.graph.input[0]))
 
             onnx.checker.check_model(onnx_model)
+            '''
 
     def save(self, Path=None):
         """

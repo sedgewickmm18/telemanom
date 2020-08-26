@@ -3,8 +3,8 @@ import os
 import sys
 import numpy as np
 import pandas as pd
-import torch
-import onnxruntime
+#import torch
+#import onnxruntime
 
 import telemanom
 from telemanom.helpers import Config
@@ -18,21 +18,23 @@ try:
     model_path = os.environ["RESULT_DIR"]+"/model"
 except Exception:
     local = True
-    model_path = './model/mytrainedpytorchmodel.torch'
+    model_path = './model/mytrainedpytorchmodel.onnx'
 model_input_path = './model/mytrainedpytorchmodel'
+model_torch_path = './model/mytrainedpytorchmodel.torch'
 
 print (model_path)
 
 conf = Config("./config.yaml")
 
+# override configuration
 conf.dictionary['l_s'] = 250
 conf.dictionary['epochs'] = 80
 conf.dictionary['dropout'] = 0.2
-conf.batch_size = 512
-conf.l_s = 250
-conf.epochs = 10
-conf.dropout = 0.2
-conf.lstm_batch_size=64
+conf.batch_size = 512    # expect data coming in in batches
+conf.l_s = 250           # historic data, 250 data points
+conf.epochs = 10         # train at most 10 epochs
+conf.dropout = 0.2       # drop 20%
+conf.lstm_batch_size=64  # update params after 64 steps
 
 # Load data from
 device="Armstarknew"
@@ -50,6 +52,7 @@ chan.shape_data(chan.test, train=False)
 # init Pytorch double stacked LSTM model
 model = Model(conf, conf.use_id, chan, "./", False)
 
+'''
 try:
     model.model.load_state_dict(torch.load(model_input_path))
     model.model.eval()
@@ -58,8 +61,10 @@ except Exception as e:
     # drink a coffee - training takes roughly 30 minutes
     model.train_new(chan)
     #torch.save(model.model.state_dict(), model_path)
+'''
 
-#model.train_new(chan)
+model.train_new(chan)
+model.save(model_torch_path)
 model.export(model_path)
 
 # save_path = saver.save(sess, model_path)
