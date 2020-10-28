@@ -2,7 +2,6 @@ import numpy as np
 import scipy as sp
 import os
 import logging
-from sklearn.model_selection import train_test_split
 import torch
 import torch.autograd
 from torch.autograd import Variable
@@ -10,6 +9,8 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import DataLoader, Dataset, TensorDataset
 from torch.utils.data.dataset import random_split
+
+from sklearn.model_selection import train_test_split
 # no onnx in WML
 #import onnx
 
@@ -136,7 +137,7 @@ class Model:
             self.new_model((None, channel.X_train.shape[2]))
         elif not self.config.train:
             try:
-                self.load()
+                self.load(Path)
             except FileNotFoundError:
                 path = os.path.join(Path, 'data', self.config.use_id, 'models',
                                     self.chan_id + '.h5')
@@ -152,14 +153,14 @@ class Model:
         out = '\n%s:%s' % (self.__class__.__name__, self.name) + "\n" + str(self.model.summary())
         return out
 
-    def load(self):
+    def load(self, Path=None):
         """
         Load model for channel.
         """
 
         logger.info('Loading pre-trained model')
 
-        self.model = self.model.load_state_dict(torch.load(os.path.join('data', self.config.use_id,
+        self.model = self.model.load_state_dict(torch.load(os.path.join(Path, self.config.use_id,
                                              'models', self.chan_id + '.h5')))
 
         #self.model = load_model(os.path.join('data', self.config.use_id,
@@ -422,7 +423,8 @@ class Model:
 
                 # ONNX support
                 if self.onnx_session is not None:
-                    ort_outs = self.onnx_session.run(None, X_test_batch)
+                    ort_inputs = {self.onnx_session.get_inputs()[0].name: X_test_batch.astype(np.float32)}
+                    ort_outs = self.onnx_session.run(None, ort_inputs)
                     y_hat_batch = ort_outs[0]
                 else:
                     y_hat_batch,_ = self.model(X_test_batch)

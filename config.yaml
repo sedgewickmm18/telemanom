@@ -53,7 +53,7 @@ min_delta: 0.0003
 l_s: 250
 
 # number of steps ahead to predict
-n_predictions: 10
+n_predictions: 24
 
 # Error thresholding parameters
 # ==================================
