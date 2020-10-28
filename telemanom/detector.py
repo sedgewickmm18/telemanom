@@ -12,7 +12,6 @@ from telemanom.modeling import Model
 
 logger = helpers.setup_logging()
 
-
 class Detector:
     def __init__(self, labels_path=None, result_path='results/',
                  config_path='config.yaml'):
@@ -188,6 +187,7 @@ class Detector:
                         .format(self.result_df['normalized_pred_error'].mean()))
             logger.info('Total number of values evaluated: {}'
                         .format(self.result_df['num_test_values'].sum()))
+
 
     def run(self):
         """
