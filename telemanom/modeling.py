@@ -2,6 +2,9 @@ from keras.models import Sequential, load_model
 from keras.callbacks import History, EarlyStopping
 from keras.layers.recurrent import LSTM
 from keras.layers.core import Dense, Activation, Dropout
+from keras.metrics import MeanSquaredError,MeanAbsoluteError
+#from keras.metrics tf
+
 import numpy as np
 import scipy as sp
 import os
@@ -10,6 +13,8 @@ import logging
 # suppress tensorflow CPU speedup warnings
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 logger = logging.getLogger('telemanom')
+
+model_metric = MeanSquaredError()
 
 
 class Model:
@@ -48,7 +53,7 @@ class Model:
             self.new_model((None, channel.X_train.shape[2]))
         elif not self.config.train:
             try:
-                self.load()
+                self.load(Path)
             except FileNotFoundError:
                 path = os.path.join(Path, 'data', self.config.use_id, 'models',
                                     self.chan_id + '.h5')
@@ -64,14 +69,22 @@ class Model:
         out = '\n%s:%s' % (self.__class__.__name__, self.name) + "\n" + str(self.model.summary())
         return out
 
-    def load(self):
+    def load(self, Path=None):
         """
         Load model for channel.
         """
 
         logger.info('Loading pre-trained model')
-        self.model = load_model(os.path.join('data', self.config.use_id,
-                                             'models', self.chan_id + '.h5'))
+        self.model = load_model(os.path.join(Path, 'data', self.config.use_id,
+                                             'models', self.chan_id + '.h5'), compile=False)
+
+        # compile with custom loss metric
+        self.model.compile(loss=self.config.loss_metric,
+                           optimizer=self.config.optimizer,
+                           metrics=[model_metric])
+
+        # reset y_hat
+        self.y_hat = np.array([])
 
     def new_model(self, Input_shape):
         """
@@ -84,6 +97,9 @@ class Model:
 
         if self.model is not None:
             return
+
+        # reset y_hat
+        self.y_hat = np.array([])
 
         self.model = Sequential()
 
@@ -103,7 +119,8 @@ class Model:
         self.model.add(Activation('linear'))
 
         self.model.compile(loss=self.config.loss_metric,
-                           optimizer=self.config.optimizer)
+                           optimizer=self.config.optimizer,
+                           metrics=[model_metric])
 
     def train_new(self, channel):
         """
@@ -120,7 +137,7 @@ class Model:
         cbs = [History(), EarlyStopping(monitor='val_loss',
                                         patience=self.config.patience,
                                         min_delta=self.config.min_delta,
-                                        verbose=0)]
+                                        verbose=1)]
 
         self.history = self.model.fit(channel.X_train,
                                       channel.y_train,
@@ -157,6 +174,14 @@ class Model:
         for t in range(len(y_hat_batch)):
 
             start_idx = t - self.config.n_predictions
+
+            try:
+                print ('Aggregate: ', start_idx, type(y_hat_batch),
+                        y_hat_batch.shape, ' append ', y_hat_t[0])
+            except Exception:
+                print ('Aggregate: ', start_idx, type(y_hat_batch))
+                pass
+
             start_idx = start_idx if start_idx >= 0 else 0
 
             # predictions pertaining to a specific timestep lie along diagonal
@@ -214,7 +239,11 @@ class Model:
                 X_test_batch = channel.X_test[prior_idx:idx]
                 y_hat_batch = self.model.predict(X_test_batch)
 
-            logger.debug("predict: batch ", i, " - ", y_hat_batch.shape)
+            try:
+                logger.debug("predict: batch ", i, " - ", y_hat_batch.shape)
+            except Exception:
+                logger.debug("predict: batch ", i)
+                pass
 
             self.aggregate_predictions(y_hat_batch)
 

@@ -30,7 +30,7 @@ error_buffer: 100
 loss_metric: 'mse'
 optimizer: 'adam'
 validation_split: 0.2
-dropout: 0.3
+dropout: 0.1
 lstm_batch_size: 64
 
 # maximum number of epochs allowed (if early stopping criteria not met)
@@ -50,10 +50,10 @@ patience: 3
 min_delta: 0.0003
 
 # num previous timesteps provided to model to predict future values
-l_s: 250
+l_s: 100
 
 # number of steps ahead to predict
-n_predictions: 10
+n_predictions: 24
 
 # Error thresholding parameters
 # ==================================
